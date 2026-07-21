@@ -7,5 +7,5 @@ http.createServer((req,res)=>{
   const p=path.join(__dirname, decodeURIComponent(rel));
   if(!p.startsWith(__dirname)){res.writeHead(403);return res.end('403');}
   fs.readFile(p,(e,d)=>{ if(e){res.writeHead(404);return res.end('Not found: '+rel);}
-    res.writeHead(200,{'Content-Type':mime[path.extname(p)]||'application/octet-stream'}); res.end(d); });
+    res.writeHead(200,{'Content-Type':mime[path.extname(p)]||'application/octet-stream','Cache-Control':'no-cache, no-store, must-revalidate'}); res.end(d); });
 }).listen(PORT,()=>console.log('\n  GenAI Interaction Lab (2D) running:\n  →  http://localhost:'+PORT+'\n\n  (Ctrl+C to stop)\n'));

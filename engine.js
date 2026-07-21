@@ -12,10 +12,14 @@ const PHY = { dragLag:0.38, friction:0.985, bounce:0.6, maxSpeed:46,
 /* ---------- canvas / DPR ------------------------------------------------ */
 const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
-let W=1280, H=800, DPR=1;          // W,H are the FIXED VIRTUAL layout size — every
-                                     // page positions things against this, never against
-                                     // the real screen size, so nothing shifts per device.
-let vScale=1, vOffX=0, vOffY=0;     // real-screen scale/offset to fit the virtual canvas
+let W=1200, H=760, DPR=1;          // W,H are the VIRTUAL layout size — pages position things
+                                     // against L.W/L.H (live getters), so this can flex per
+                                     // device without any page needing rewritten coordinates.
+let vScale=1, vOffX=0, vOffY=0;     // real-screen scale/offset (only nonzero past the aspect clamp below)
+const SAFE_W=1200, SAFE_H=760;      // guaranteed-visible content box every page's offsets fit inside
+const MAX_W=SAFE_W*1.8, MAX_H=SAFE_H*2.6; // cap how sparse extreme aspect ratios are allowed to get
+                                     // (H gets more headroom than W: a tall phone can absorb extra
+                                     // vertical breathing room far more gracefully than a dead letterbox)
 
 /* ---------- palette (techy neon-on-dark) -------------------------------- */
 const COL = {
@@ -25,7 +29,7 @@ const COL = {
 
 /* ---------- page registry ----------------------------------------------- */
 const PAGES = [];
-let page=0, worldX=0, worldXT=0, started=false;
+let page=0, worldX=0, worldXT=0, started=false, laidOut=false;
 const objs = [];
 function definePage(def){ def.idx=PAGES.length; PAGES.push(def); }
 
@@ -56,10 +60,20 @@ function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y);
   ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 function panel(x,y,w,h,color,{fillA=0.06, strokeA=0.85, glow=10, r=14}={}){
   ctx.save();
+  // soft drop shadow beneath the card for real depth, separate from the glow stroke
+  ctx.shadowColor='rgba(0,0,0,0.65)'; ctx.shadowBlur=26; ctx.shadowOffsetY=12;
   roundRect(x-w/2,y-h/2,w,h,r);
-  ctx.fillStyle = hexA(color,fillA); ctx.fill();
-  ctx.shadowColor=color; ctx.shadowBlur=glow;
-  ctx.strokeStyle=hexA(color,strokeA); ctx.lineWidth=1.6; ctx.stroke();
+  const grad=ctx.createLinearGradient(x,y-h/2,x,y+h/2);
+  grad.addColorStop(0,hexA(color,Math.min(0.85,fillA+0.22))); grad.addColorStop(0.5,hexA(color,fillA+0.06)); grad.addColorStop(1,hexA(color,fillA*0.35));
+  ctx.fillStyle=grad; ctx.fill();
+  ctx.shadowOffsetY=0; ctx.shadowColor=color; ctx.shadowBlur=glow*1.6;
+  ctx.strokeStyle=hexA(color,strokeA); ctx.lineWidth=2; ctx.stroke();
+  ctx.restore();
+  // bright inner rim-light along the top edge — the "glass card catching light" cue
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(x-w/2+r, y-h/2+1.2); ctx.lineTo(x+w/2-r, y-h/2+1.2);
+  ctx.strokeStyle=hexA('#ffffff',0.55); ctx.lineWidth=1.4; ctx.shadowColor='#ffffff'; ctx.shadowBlur=6;
+  ctx.stroke();
   ctx.restore();
 }
 function glowCircle(x,y,r,color,{fillA=0.85, glow=16, strokeOnly=false}={}){
@@ -78,6 +92,7 @@ function hexA(hex, a){ // '#rrggbb' -> 'rgba(r,g,b,a)'
   const h=hex.replace('#',''); const r=parseInt(h.slice(0,2),16), g=parseInt(h.slice(2,4),16), b=parseInt(h.slice(4,6),16);
   return `rgba(${r},${g},${b},${a})`;
 }
+function easeOutCubic(t){ return 1-Math.pow(1-t,3); }
 
 /* ---------- audio --------------------------------------------------------- */
 let AC=null, muted=false;
@@ -107,7 +122,7 @@ class Obj{
     this.homeX=x; this.homeY=y; this.r=r;
     this.state='idle'; this.grabId=null; this.gox=0; this.goy=0;
     this.squash=1; this.spin=Math.random()*6.28; this._bobPh=Math.random()*6.28; this.rejectT=0;
-    this.pinned=false;
+    this.pinned=false; this.spawnT=0;
     objs.push(this);
   }
   grab(pid,wx,wy){ if(this.pinned) return; this.state='grab'; this.grabId=pid;
@@ -123,6 +138,7 @@ class Obj{
   snapHome(){ this.state='fly'; this.vx=(this.homeX-this.x)*0.08; this.vy=(this.homeY-this.y)*0.08; }
   update(dt){
     this.squash+=(1-this.squash)*0.16; this.spin+=dt*0.6;
+    if(this.spawnT<1) this.spawnT=Math.min(1,this.spawnT+dt*4);
     if(this.rejectT>0) this.rejectT-=dt*2.4;
     if(this.state==='fly'){
       this.vx*=PHY.friction; this.vy*=PHY.friction; this.x+=this.vx; this.y+=this.vy;
@@ -146,18 +162,44 @@ function resize(){
   DPR=Math.min(devicePixelRatio||1,2);
   cv.width=Math.round(innerWidth*DPR); cv.height=Math.round(innerHeight*DPR);
   cv.style.width=innerWidth+'px'; cv.style.height=innerHeight+'px';  // pin CSS size = window
-  vScale = Math.min(innerWidth/W, innerHeight/H);
-  vOffX = (innerWidth - W*vScale)/2;
-  vOffY = (innerHeight - H*vScale)/2;
+
+  // Fit SAFE_W×SAFE_H, then let W/H grow to fill whatever the real viewport offers (clamped) —
+  // this is what eliminates the old fixed-1280×800 letterboxing on non-1.6-aspect screens.
+  vScale = Math.min(innerWidth/SAFE_W, innerHeight/SAFE_H);
+  const newW = Math.min(innerWidth/vScale, MAX_W);
+  const newH = Math.min(innerHeight/vScale, MAX_H);
+  vOffX = (innerWidth - newW*vScale)/2;
+  vOffY = (innerHeight - newH*vScale)/2;
+
+  const changed = laidOut && (Math.abs(newW-W)>1 || Math.abs(newH-H)>1);
+  W=newW; H=newH;
+  document.body.classList.toggle('portrait', innerWidth/innerHeight<0.8);
+  if(changed) relayout();
 }
-addEventListener('resize', ()=>{ resize(); });
+function relayout(){
+  // W/H actually changed (rotation, window resize) — every page's manager objects (Core,
+  // Machine, rings, Building, Neuron, Network, terrain...) and Objs bake in absolute
+  // coordinates at build/reset time, so re-run both, same as boot() does initially.
+  worldXT = page*W; worldX = worldXT;
+  seedBG();
+  PAGES.forEach((pg,i)=>{
+    for(const o of [...objs]) if(o.page===i) o.dispose();
+    pg.build && pg.build(LAB,i); pg.reset && pg.reset(LAB,i);
+  });
+}
+let resizeT=null;
+addEventListener('resize', ()=>{ clearTimeout(resizeT); resizeT=setTimeout(resize,150); });
 
 /* ---------- background: grid + drifting particles ------------------------ */
 let bgParts=[];
 function seedBG(){ bgParts=[]; const n=110;
-  for(let i=0;i<n;i++) bgParts.push({ x:Math.random()*W*Math.max(1,PAGES.length),
-    y:Math.random()*H, vx:(Math.random()-.5)*.15, vy:(Math.random()-.5)*.15,
-    r:Math.random()*1.4+.4, a:Math.random()*.3+.06 }); }
+  for(let i=0;i<n;i++){
+    const far=Math.random()<0.4;               // two depth layers -> cheap parallax
+    const spd=far?.06:.15, size=far?.9:1.6, alpha=far?.05:.28;
+    bgParts.push({ x:Math.random()*W*Math.max(1,PAGES.length), y:Math.random()*H,
+      vx:(Math.random()-.5)*spd, vy:(Math.random()-.5)*spd,
+      r:Math.random()*size+.4, a:Math.random()*alpha+.04, far });
+  } }
 function drawGrid(){
   const step=64, x0=Math.floor(worldX/step)*step - step;
   ctx.save(); ctx.strokeStyle=COL.grid; ctx.lineWidth=1;
@@ -191,8 +233,9 @@ window.__objsRef = ()=>objs;
 /* ---------- navigation ------------------------------------------------------ */
 function gotoPage(p){
   page=Math.max(0,Math.min(PAGES.length-1,p)); worldXT=page*W;
-  document.getElementById('pagename').textContent=PAGES[page].name;
+  document.getElementById('pagenameText').textContent=PAGES[page].name;
   document.getElementById('titleText').textContent=PAGES[page].title;
+  document.getElementById('pagecount').textContent=(page+1)+' / '+PAGES.length;
   document.getElementById('prev').classList.toggle('hidden',page===0);
   document.getElementById('next').classList.toggle('hidden',page===PAGES.length-1);
   rebuildDots(); beep(620,.06,'triangle');
@@ -210,6 +253,7 @@ function boot(){
   if(started) return; started=true;
   resize(); seedBG();
   PAGES.forEach((pg,i)=>{ pg.build && pg.build(LAB,i); pg.reset && pg.reset(LAB,i); });
+  laidOut=true;
   cv.addEventListener('pointerdown', e=>{
     cv.setPointerCapture(e.pointerId);
     const v=toVirtual(e.clientX,e.clientY); ripple(v.x,v.y,true);
@@ -219,11 +263,18 @@ function boot(){
       if(o.page===page && o.state!=='processing' && !o.pinned){
         if(Math.hypot(w.x-o.x, w.y-o.y) < o.r+PHY.grabAssist){ hit=o; break; } } }
     if(hit){ for(const [,p] of pointers) if(p.obj===hit) p.obj=null; hit.grab(e.pointerId,w.x,w.y);
-      objs.splice(objs.indexOf(hit),1); objs.push(hit); }
+      objs.splice(objs.indexOf(hit),1); objs.push(hit); cv.style.cursor='grabbing'; }
     pointers.set(e.pointerId,{x:v.x,y:v.y,w,obj:hit,startX:v.x,moved:0,t0:performance.now()});
   });
   cv.addEventListener('pointermove', e=>{
-    const p=pointers.get(e.pointerId); if(!p) return;
+    const p=pointers.get(e.pointerId);
+    if(!p){ // hover-only move (no active drag): show a grab cursor over draggable objects
+      const v=toVirtual(e.clientX,e.clientY); const w={x:v.x+worldX, y:v.y}; let hover=false;
+      for(let i=objs.length-1;i>=0;i--){ const o=objs[i];
+        if(o.page===page && o.state!=='processing' && !o.pinned && Math.hypot(w.x-o.x,w.y-o.y)<o.r+PHY.grabAssist){ hover=true; break; } }
+      cv.style.cursor = hover ? 'grab' : 'default';
+      return;
+    }
     const v=toVirtual(e.clientX,e.clientY);
     p.moved+=Math.hypot(v.x-p.x,v.y-p.y); p.x=v.x; p.y=v.y;
     const w={x:v.x+worldX, y:v.y}; p.w=w; if(p.obj) p.obj.dragTo(w.x,w.y);
@@ -233,17 +284,23 @@ function boot(){
     if(p.obj){ const o=p.obj; let consumed=false;
       if(PAGES[page].onDrop) consumed=PAGES[page].onDrop(LAB,o,p.w,page);
       if(!consumed) o.release();
+      cv.style.cursor='default';
     } else { const dx=v.x-p.startX, dt=performance.now()-p.t0;
       if(Math.abs(dx)>70 && dt<600 && Math.abs(dx)>p.moved*0.6) gotoPage(page+(dx<0?1:-1)); }
     pointers.delete(e.pointerId); ripple(v.x,v.y);
   }
   cv.addEventListener('pointerup', endP); cv.addEventListener('pointercancel', endP);
 
+  addEventListener('keydown', e=>{
+    if(e.key==='ArrowRight'){ gotoPage(page+1); }
+    else if(e.key==='ArrowLeft'){ gotoPage(page-1); }
+  });
+
   document.getElementById('prev').addEventListener('pointerdown',e=>{e.stopPropagation();gotoPage(page-1);});
   document.getElementById('next').addEventListener('pointerdown',e=>{e.stopPropagation();gotoPage(page+1);});
   document.getElementById('resetBtn').addEventListener('pointerdown',e=>{e.stopPropagation();resetPage(page);});
   document.getElementById('muteBtn').addEventListener('pointerdown',e=>{e.stopPropagation();
-    muted=!muted; e.target.textContent=muted?'Sound: Off':'Sound: On';});
+    muted=!muted; document.getElementById('muteText').textContent=muted?'Sound: Off':'Sound: On';});
   let dbg=0,dbgT=null,showFPS=false;
   addEventListener('pointerdown',e=>{ if(e.clientX>innerWidth-120&&e.clientY<100){
     dbg++; clearTimeout(dbgT); dbgT=setTimeout(()=>dbg=0,700);
@@ -265,6 +322,19 @@ function frame(now){
   // screens with a different aspect ratio than the virtual canvas).
   ctx.setTransform(DPR,0,0,DPR,0,0);
   ctx.fillStyle=COL.bg; ctx.fillRect(0,0,innerWidth,innerHeight);
+
+  // ambient colour glow blobs, slowly drifting — gives the dark backdrop life instead of flat black
+  [[COL.CY,0.16,0.22,0],[COL.VI,0.64,0.16,2.1],[COL.MG,0.4,0.7,4.2]].forEach(([col,bx,by,ph])=>{
+    const bcx=innerWidth*bx + Math.sin(T*0.15+ph)*46, bcy=innerHeight*by + Math.cos(T*0.12+ph)*34;
+    const rad=Math.max(innerWidth,innerHeight)*0.36;
+    const bg2=ctx.createRadialGradient(bcx,bcy,0, bcx,bcy,rad);
+    bg2.addColorStop(0,hexA(col,0.13)); bg2.addColorStop(1,hexA(col,0));
+    ctx.fillStyle=bg2; ctx.fillRect(0,0,innerWidth,innerHeight);
+  });
+
+  const vg=ctx.createRadialGradient(innerWidth/2,innerHeight/2,0, innerWidth/2,innerHeight/2, Math.max(innerWidth,innerHeight)*0.7);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,0,0.5)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,innerWidth,innerHeight);
 
   // Switch into virtual coordinate space: from here on, 1 unit = 1 virtual pixel,
   // and everything (all page code) draws in the same fixed W×H space regardless
@@ -293,7 +363,17 @@ function frame(now){
   if(pg && pg.draw) pg.draw(LAB, ctx, dt, T);
   if(pg && pg.onFrame) pg.onFrame(LAB, dt, T);
   for(const o of [...objs]){ if(Math.abs(o.page-page)>1) continue; o.update(dt);
-    ctx.save(); ctx.translate(0, o.bobY()); o.draw(ctx); ctx.restore(); }
+    ctx.save(); ctx.translate(0, o.bobY());
+    if(o.state==='idle' && !o.pinned && o.grabId==null){
+      const pulse=0.5+0.5*Math.sin(T*2.2+o.spin*3);
+      ctx.save(); ctx.globalAlpha=0.24+pulse*0.22; ctx.strokeStyle='#eaf9ff'; ctx.lineWidth=2;
+      ctx.shadowColor='#eaf9ff'; ctx.shadowBlur=12+pulse*14;
+      ctx.beginPath(); ctx.arc(o.x,o.y,o.r*1.3+pulse*6,0,6.283); ctx.stroke(); ctx.restore();
+    }
+    if(o.spawnT<1){ const grow=0.5+0.5*easeOutCubic(o.spawnT);
+      ctx.translate(o.x,o.y); ctx.scale(grow,grow); ctx.translate(-o.x,-o.y);
+      ctx.globalAlpha*=easeOutCubic(o.spawnT); }
+    o.draw(ctx); ctx.restore(); }
   ctx.restore();
 
   // bursts (screen space, follow world scroll too -> draw in world space)

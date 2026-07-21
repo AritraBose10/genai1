@@ -5,42 +5,64 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Applied Generative AI — Interaction Lab</title>
 <style>
-  :root{ --ink:#eaf9ff; --cy:#46f0ff; --dim:#7fa3b8; }
+  :root{ --ink:#eaf9ff; --cy:#46f0ff; --vi:#9d6bff; --dim:#7fa3b8; }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
   html,body{width:100%;height:100%;overflow:hidden;background:#060912}
   body{font-family:"SF Mono","Cascadia Mono",Consolas,"Roboto Mono",monospace;color:var(--ink)}
   #cv{position:fixed;top:0;left:0;display:block;touch-action:none}
-  .hud{position:fixed;z-index:10;pointer-events:none}
+  .hud{position:fixed;z-index:10;pointer-events:none;animation:hudIn .6s cubic-bezier(.16,1,.3,1) both}
+  @keyframes hudIn{ from{opacity:0; transform:translateY(-6px)} to{opacity:1; transform:translateY(0)} }
   #title{top:16px;left:50%;transform:translateX(-50%);text-align:center}
   #title .eyebrow{font-size:10px;letter-spacing:.4em;color:var(--dim);text-transform:uppercase}
   #title h1{font-size:clamp(15px,2.1vw,22px);letter-spacing:.24em;font-weight:700;color:var(--cy);
-    text-transform:uppercase;margin-top:4px}
-  #pagename{bottom:60px;left:50%;transform:translateX(-50%);font-size:11px;letter-spacing:.35em;color:var(--dim);text-transform:uppercase}
+    text-transform:uppercase;margin-top:4px;text-shadow:0 0 18px rgba(70,240,255,.35)}
+  #pagename{bottom:60px;left:50%;transform:translateX(-50%);font-size:11px;letter-spacing:.35em;color:var(--dim);text-transform:uppercase;transition:opacity .2s;display:flex;align-items:center;gap:10px;white-space:nowrap}
+  #pagecount{color:var(--cy);font-size:10px;letter-spacing:.15em;padding:2px 8px;border:1px solid rgba(70,240,255,.35);border-radius:20px;background:rgba(70,240,255,.08)}
   #dots{bottom:28px;left:50%;transform:translateX(-50%);display:flex;gap:11px;pointer-events:auto;flex-wrap:wrap;justify-content:center;max-width:80vw}
-  .dot{width:10px;height:10px;border-radius:50%;border:1px solid var(--dim);cursor:pointer;transition:all .25s;background:transparent}
-  .dot.on{background:var(--cy);box-shadow:0 0 10px var(--cy);border-color:var(--cy)}
-  .navbtn{position:fixed;top:50%;transform:translateY(-50%);z-index:10;width:54px;height:96px;
-    background:rgba(70,240,255,.05);border:1px solid rgba(70,240,255,.28);border-radius:12px;color:var(--cy);
-    font-size:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.2s}
-  .navbtn:active{background:rgba(70,240,255,.18)}
-  #prev{left:12px}#next{right:12px}
+  .dot{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--dim);cursor:pointer;background:rgba(255,255,255,.03);
+    transition:transform .35s cubic-bezier(.34,1.56,.64,1), background .25s, box-shadow .25s, border-color .25s}
+  .dot:hover{border-color:var(--cy);transform:scale(1.15)}
+  .dot.on{background:var(--cy);box-shadow:0 0 16px var(--cy),0 0 3px #fff;border-color:var(--cy);transform:scale(1.5)}
+
+  .glass{background:linear-gradient(160deg, rgba(70,240,255,.12), rgba(70,240,255,.03));
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+    border:1px solid rgba(70,240,255,.3);
+    box-shadow:0 4px 18px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
+    transition:transform .18s cubic-bezier(.16,1,.3,1), background .2s, box-shadow .2s}
+  .glass:hover{background:linear-gradient(160deg, rgba(70,240,255,.2), rgba(70,240,255,.06));
+    box-shadow:0 6px 22px rgba(0,0,0,.4), 0 0 18px rgba(70,240,255,.25), inset 0 1px 0 rgba(255,255,255,.08)}
+  .glass:active{transform:scale(.92);background:rgba(70,240,255,.24)}
+
+  .navbtn{position:fixed;top:50%;transform:translateY(-50%);z-index:10;width:58px;height:104px;
+    border-radius:18px;color:var(--cy);display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .navbtn svg{filter:drop-shadow(0 0 8px rgba(70,240,255,.65))}
+  #prev{left:14px}#next{right:14px}
   .navbtn.hidden{opacity:0;pointer-events:none}
-  #resetBtn,#muteBtn{position:fixed;z-index:10;bottom:20px;padding:9px 15px;font-family:inherit;font-size:10px;
-    letter-spacing:.28em;text-transform:uppercase;color:var(--ink);cursor:pointer;background:rgba(70,240,255,.05);
-    border:1px solid rgba(70,240,255,.3);border-radius:8px}
+  #resetBtn,#muteBtn{position:fixed;z-index:10;bottom:20px;padding:10px 18px 10px 14px;font-family:inherit;font-size:10px;
+    letter-spacing:.24em;text-transform:uppercase;color:var(--ink);cursor:pointer;border-radius:24px;
+    display:flex;align-items:center;gap:8px}
   #resetBtn{right:20px}#muteBtn{left:20px}
-  #resetBtn:active,#muteBtn:active{background:rgba(70,240,255,.2)}
+  .btn-ic{width:14px;height:14px;flex:none}
   #fps{position:fixed;top:14px;right:16px;z-index:10;font-size:10px;color:var(--dim);letter-spacing:.2em;display:none}
+
+  body.portrait .navbtn{top:auto;bottom:22px;width:44px;height:44px;border-radius:50%}
+  body.portrait #prev{left:16px}
+  body.portrait #next{right:16px}
+  body.portrait #dots{bottom:32px}
+  body.portrait #pagename{bottom:82px}
+  body.portrait #resetBtn,body.portrait #muteBtn{bottom:auto;top:60px;padding:6px 10px;font-size:9px}
+  body.portrait #resetBtn{right:10px}
+  body.portrait #muteBtn{left:10px}
 </style>
 </head>
 <body>
 <div class="hud" id="title"><div class="eyebrow">Applied Generative AI · Module 1</div><h1 id="titleText">Interaction Lab</h1></div>
-<div class="hud" id="pagename">—</div>
+<div class="hud" id="pagename"><span id="pagenameText">—</span><span id="pagecount">1 / 8</span></div>
 <div class="hud" id="dots"></div>
-<div class="navbtn hidden" id="prev">&lsaquo;</div>
-<div class="navbtn" id="next">&rsaquo;</div>
-<button id="muteBtn">Sound: On</button>
-<button id="resetBtn">Reset Page</button>
+<div class="navbtn glass hidden" id="prev"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></div>
+<div class="navbtn glass" id="next"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></div>
+<button class="glass" id="muteBtn"><svg class="btn-ic" id="muteIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="4 9 8 9 12 5 12 19 8 15 4 15"/><path d="M16 8a5 5 0 0 1 0 8"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg><span id="muteText">Sound: On</span></button>
+<button class="glass" id="resetBtn"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 8 8 8"/></svg>Reset Page</button>
 <div id="fps"></div>
 
 <canvas id="cv"></canvas>

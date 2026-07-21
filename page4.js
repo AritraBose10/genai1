@@ -65,7 +65,7 @@ L.definePage({
       'deep learning didn\'t win because it\'s "smarter" — it won because it removes the manual feature step.');
   },
   reset(L,idx){ const X=L.pageCenterX(idx);
-    for(let i=0;i<3;i++) spawnPhoto(idx, X-170, L.H*0.3+i*(L.H*0.28));
+    for(let i=0;i<3;i++) spawnPhoto(idx, X-460, L.H*0.3+i*(L.H*0.14));
     for(let i=0;i<3;i++) spawnPhoto(idx, X+440, L.H*0.3+i*(L.H*0.28));
   },
   onDrop(L,o,w,idx){
