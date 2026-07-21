@@ -1,71 +1,70 @@
-/* PAGE 6 — The Neuron: inputs → weighted sum → threshold → fire */
+/* PAGE 6 — How a Neuron Fires */
 (function(){
-const L=window.LAB, T=L.THREE, ROOM=L.ROOM, X=6*ROOM;
-let neuron=null, decor=[], inputs=[];
+const L=window.LAB;
+let neuron=null, inputs=[], fireBtn=null;
 
 class InputOrb extends L.Obj{
-  constructor(x,y,idx){ super(6,x,y,1.4); this.idx=idx; this.value=Math.round(Math.random());
-    this.body=new T.Mesh(new T.SphereGeometry(1,20,20), L.fresnelMat(0x46f0ff,2.4,0.9));
-    this.coreMesh=new T.Mesh(new T.SphereGeometry(0.6,16,16), L.basicMat(0x46f0ff, this.value?0.9:0.2));
-    this.lbl=L.textSprite(this.value.toString(),26,'#c9f7ff'); this.lbl.position.set(0,0,1.1);
-    this.group.add(this.body,this.coreMesh,this.lbl);
-  }
-  toggle(){ this.value=this.value?0:1; this.coreMesh.material.opacity=this.value?0.9:0.2;
-    this.setLbl(); L.beep(this.value?720:300,0.06,'sine',0.04); }
-  setLbl(){ this.group.remove(this.lbl); this.lbl=L.textSprite(this.value.toString(),26,'#c9f7ff'); this.lbl.position.set(0,0,1.1); this.group.add(this.lbl); }
+  constructor(pageIdx,x,y){ super(pageIdx,x,y,30); this.value=Math.round(Math.random()); }
+  toggle(){ this.value=this.value?0:1; L.beep(this.value?720:300,0.06,'sine',0.04); }
+  draw(ctx){ L.glowCircle(this.x,this.y,this.r,L.COL.CY,{fillA:this.value?0.85:0.15,glow:this.value?18:6});
+    L.drawText(this.value.toString(), this.x, this.y, {size:24,color:'#04141c',weight:'900'}); }
 }
-
+class FireButton extends L.Obj{
+  constructor(pageIdx,x,y){ super(pageIdx,x,y,36); this.pinned=false; this.isFire=true; }
+  draw(ctx){ L.glowCircle(this.x,this.y,this.r,L.COL.OK,{strokeOnly:true,glow:14});
+    L.drawText('FIRE', this.x, this.y, {size:16,color:L.COL.OK,weight:'800'}); }
+}
 class Neuron{
-  constructor(x,y){ this.x=x; this.y=y; this.g=new T.Group(); this.g.position.set(x,y,0); L.scene.add(this.g);
-    this.weights=[0.6,0.6,0.6]; this.threshold=1.0; this.charge=0; this.fireT=-1;
-    // cell body (tank)
-    this.body=new T.Mesh(new T.SphereGeometry(2.6,32,32), L.fresnelMat(0x9d6bff,2.2,0.8)); this.g.add(this.body);
-    this.fill=new T.Mesh(new T.SphereGeometry(2.4,24,24), new T.MeshBasicMaterial({color:0x9d6bff,transparent:true,opacity:0.15,blending:T.AdditiveBlending,depthWrite:false})); this.g.add(this.fill);
+  constructor(x,y){ this.x=x; this.y=y; this.weights=[0.6,0.6,0.6]; this.threshold=1.0; this.fireT=-1; this.fillLevel=0; }
+  wire(list){ this.inputs=list; }
+  compute(){ let s=0; this.inputs.forEach((inp,i)=>s+=inp.value*this.weights[i]); return s; }
+  fire(){ const s=this.compute(); this.fillLevel=Math.min(1,s/1.6);
+    if(s>=this.threshold){ this.fireT=0; L.burst(this.x+200,this.y,L.COL.OK,40,4); L.beep(140,0.25,'sine',0.08); setTimeout(()=>L.beep(90,0.3,'sine',0.06),40); }
+    else L.beep(160,0.2,'sawtooth',0.04);
+    this._lastSum=s;
+  }
+  update(dt){ if(this.fireT>=0){ this.fireT+=dt*1.8; if(this.fireT>1.3) this.fireT=-1; }
+    if(this.inputs) this.fillLevel += ((this.compute()/1.6)-this.fillLevel)*0.1; }
+  draw(ctx){
+    L.drawText('THE NEURON', this.x, this.y-150, {size:24,color:'#c9b3ff',weight:'800'});
+    L.wrapText('inputs × weights, summed. cross the threshold → it fires.', this.x, this.y-120, 460, 22, {size:16,color:L.COL.dim,weight:'500'});
+    // cell body
+    L.glowCircle(this.x,this.y,70,L.COL.VI,{strokeOnly:true,glow:14});
+    L.glowCircle(this.x,this.y,64*Math.max(0.12,this.fillLevel),L.COL.VI,{fillA:0.35,glow:10});
+    // dendrite wires
+    if(this.inputs) this.inputs.forEach((inp,i)=>{ const w=1+this.weights[i]*4;
+      L.glowLine(inp.x+inp.r, inp.y, this.x-70, this.y, L.COL.CY, {width:w,glow:8,alpha:0.6}); });
     // axon
-    this.axon=new T.Mesh(new T.CylinderGeometry(0.25,0.25,6,12), L.basicMat(0x9d6bff,0.5)); this.axon.rotation.z=Math.PI/2; this.axon.position.x=5; this.g.add(this.axon);
-    // threshold ring
-    this.thRing=new T.Mesh(new T.TorusGeometry(2.7,0.05,8,48), L.basicMat(0xffffff,0.7)); this.g.add(this.thRing);
-    const l1=L.textSprite('THE NEURON',30,'#c9b3ff'); l1.position.set(0,5.4,0);
-    const l2=L.textSprite('inputs × weights, summed. cross the threshold → it fires.',22,'#6d90a3'); l2.position.set(0,4.4,0);
-    this.sumLbl=L.textSprite('sum 0.0 / 1.0',24,'#8fe9ff'); this.sumLbl.position.set(0,-4.6,0);
-    this.g.add(l1,l2,this.sumLbl);
-    // fire button
-    this.fireBtn=new L.Obj(6, x+0.001, y-7.2, 1.6); this.fireBtn.pinned=false; this.fireBtn.isFire=true;
-    const ring=L.lineLoop(L.circlePts(1.4),0x3dffb0); const t=L.textSprite('FIRE',22,'#3dffb0'); t.position.set(0,0,0.1);
-    this.fireBtn.group.add(ring,t);
+    const axonA = this.fireT>=0 ? 0.95-Math.max(0,this.fireT-0.3) : 0.4;
+    L.glowLine(this.x+70,this.y,this.x+220,this.y,L.COL.VI,{width:6,glow:12,alpha:axonA});
+    if(this.fireT>=0 && this.fireT<1){ const px=this.x+70+this.fireT*150;
+      L.glowCircle(px,this.y,10,L.COL.OK,{fillA:0.95,glow:20}); }
+    // threshold readout
+    const s=this._lastSum||0;
+    L.drawText('sum '+s.toFixed(2)+' / '+this.threshold.toFixed(1), this.x, this.y+110, {size:18,color:s>=this.threshold?L.COL.OK:L.COL.AM,weight:'700'});
   }
-  wire(inputs){ this.inputs=inputs; }
-  compute(){ let s=0; this.inputs.forEach((inp,i)=>{ s+=inp.value*this.weights[i]; }); return s; }
-  fire(){ const s=this.compute();
-    this.g.remove(this.sumLbl); this.sumLbl=L.textSprite('sum '+s.toFixed(2)+' / '+this.threshold.toFixed(1),24, s>=this.threshold?'#3dffb0':'#ff9f4d'); this.sumLbl.position.set(0,-4.6,0); this.g.add(this.sumLbl);
-    this.fill.material.opacity=Math.min(0.8, 0.15+s*0.4);
-    if(s>=this.threshold){ this.fireT=0; L.burst(this.x+8,this.y,0,0x3dffb0,40,0.5); L.beep(140,0.25,'sine',0.08); setTimeout(()=>L.beep(90,0.3,'sine',0.06),40); }
-    else { L.beep(160,0.2,'sawtooth',0.04); }
-  }
-  update(dt,T){ this.body.rotation.y+=dt*0.2; this.thRing.rotation.x=T*0.5;
-    if(this.fireT>=0){ this.fireT+=dt*2; this.axon.material.opacity=0.5+Math.max(0,1-this.fireT)*0.5;
-      if(this.fireT>1.2){ this.fireT=-1; this.axon.material.opacity=0.5; } } }
 }
 
 L.definePage({
   name:'One Cell of the Machine', title:'How a Neuron Fires',
-  build(L,idx){ neuron=new Neuron(X,0.5);
-    const h=L.textSprite('tap an input to flip it 0/1 · press FIRE · watch if the sum crosses the line',20,L.COL.faint); h.position.set(X,-11.4,0);
-    const h2=L.textSprite('Why it matters: every network — however huge — is millions of this exact same tiny decision, wired together.',18,'#5fd8ff'); h2.position.set(X,-13.0,0);
-    decor=[h,h2]; decor.forEach(d=>L.scene.add(d)); this.decor=decor;
+  build(L,idx){ const X=L.pageCenterX(idx);
+    neuron=new Neuron(X-40, L.H*0.46);
+    this.caption=L.pageCaption(
+      'This tiny cell is the whole trick — everything bigger is just millions of these, wired together.',
+      'tap an input to flip it 0/1  ·  press FIRE  ·  watch if the sum crosses the threshold',
+      'every network, however huge, is millions of this exact same tiny decision, wired together.');
   },
-  reset(L,p){ inputs=[]; for(let i=0;i<3;i++){ const o=new InputOrb(X-9, 4-i*4, i); o.homeX=o.x; o.homeY=o.y; inputs.push(o); }
-    neuron.wire(inputs); neuron.fireT=-1; },
-  onDrop(L,o,w,page){
+  reset(L,idx){ const X=L.pageCenterX(idx);
+    inputs=[ new InputOrb(idx,X-320,L.H*0.28), new InputOrb(idx,X-320,L.H*0.46), new InputOrb(idx,X-320,L.H*0.64) ];
+    neuron.wire(inputs); neuron.fireT=-1;
+    fireBtn=new FireButton(idx, X-40, L.H*0.74);
+  },
+  onDrop(L,o,w,idx){
     if(o.isFire){ neuron.fire(); o.snapHome(); return true; }
-    if(o instanceof InputOrb){ // if barely moved, treat as a tap-toggle
-      if(Math.hypot(o.x-o.homeX,o.y-o.homeY)<1.2){ o.toggle(); o.snapHome(); return true; }
-      o.snapHome(); return true; }
+    if(o instanceof InputOrb){ if(Math.hypot(o.x-o.homeX,o.y-o.homeY)<26){ o.toggle(); } o.snapHome(); return true; }
     return false;
   },
-  onFrame(L,dt,T){ if(neuron) neuron.update(dt,T);
-    // live sum preview
-    if(neuron && neuron.inputs){ const s=neuron.compute();
-      neuron.fill.material.opacity=0.15+Math.min(0.6, s*0.35); } }
+  onFrame(L,dt,T){ neuron.update(dt); },
+  draw(L,ctx,dt,T){ neuron.draw(ctx); }
 });
 })();

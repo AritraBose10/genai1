@@ -1,114 +1,95 @@
-/* PAGE 4 — ML vs Deep Learning: hand-crafted features vs learned features */
+/* PAGE 4 — Hand-Built vs Learned Features */
 (function(){
-const L=window.LAB, T=L.THREE, ROOM=L.ROOM, X=4*ROOM;
-let tools=[], mlModel=null, dlStack=null, decor=[], fed={ml:0,dl:0};
+const L=window.LAB;
+let tools=[], mlModel=null, dlStack=null;
 
-/* a photo token (raw data) */
 class Photo extends L.Obj{
-  constructor(x,y){ super(4,x,y,2.2); this.consumed=false;
-    this.panel=new T.Mesh(new T.PlaneGeometry(4,4), L.holoPanelMat(0x46f0ff));
-    const f=2; this.frame=L.lineLoop([new T.Vector3(-f,-f,0),new T.Vector3(f,-f,0),new T.Vector3(f,f,0),new T.Vector3(-f,f,0),new T.Vector3(-f,-f,0)],0x8fe9ff);
-    // a little abstract "creature" glyph
-    this.icon=L.lineLoop(L.circlePts(1.1),0x9feaff);
-    const ears=L.segs([[[-0.9,0.7,0],[-1.3,1.7,0]],[[-1.3,1.7,0],[-0.4,1.05,0]],[[0.9,0.7,0],[1.3,1.7,0]],[[1.3,1.7,0],[0.4,1.05,0]]],0x9feaff);
-    this.group.add(this.panel,this.frame,this.icon,ears);
-  }
-  onUpdate(dt){ this.group.rotation.y=Math.sin(this.spin*0.5)*0.06;
-    if(this.rejectT>0) this.frame.material.color.set(L.C.RD); }
+  constructor(pageIdx,x,y){ super(pageIdx,x,y,44); this.consumed=false; }
+  draw(ctx){ const col=this.rejectT>0?L.COL.RD:'#8fe9ff';
+    L.panel(this.x,this.y,90,90,col,{fillA:0.08,glow:10});
+    ctx.save(); ctx.translate(this.x,this.y); ctx.strokeStyle='#9feaff'; ctx.lineWidth=2; ctx.shadowColor='#9feaff'; ctx.shadowBlur=8;
+    ctx.beginPath(); ctx.arc(0,4,20,0,6.283); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-16,-8); ctx.lineTo(-24,-24); ctx.lineTo(-6,-14); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(16,-8); ctx.lineTo(24,-24); ctx.lineTo(6,-14); ctx.stroke();
+    ctx.restore(); }
 }
-/* a feature chip peeled off by a tool */
 class Chip extends L.Obj{
-  constructor(x,y,name,color){ super(4,x,y,1.4); this.name=name;
-    this.body=new T.Mesh(new T.OctahedronGeometry(1,0), L.basicMat(color,0.9,true));
-    this.lbl=L.textSprite(name,20,'#c9f7ff'); this.lbl.position.set(0,-1.7,0);
-    this.group.add(this.body,this.lbl); L.burst(x,y,0,color,16,0.2);
-  }
-  onUpdate(dt){ this.body.rotation.x=this.spin; this.body.rotation.y=this.spin*0.7; }
+  constructor(pageIdx,x,y,name,color){ super(pageIdx,x,y,28); this.name=name; this.color=color; L.burst(x,y,color,14,2.4); }
+  draw(ctx){ ctx.save(); ctx.translate(this.x,this.y); ctx.rotate(this.spin*0.3);
+    ctx.strokeStyle=this.color; ctx.lineWidth=2.4; ctx.shadowColor=this.color; ctx.shadowBlur=10;
+    ctx.beginPath(); ctx.moveTo(0,-18); ctx.lineTo(16,0); ctx.lineTo(0,18); ctx.lineTo(-16,0); ctx.closePath(); ctx.stroke();
+    ctx.restore();
+    L.drawText(this.name, this.x, this.y+30, {size:13,color:L.COL.ink,weight:'600'}); }
 }
-
 class Tool{
-  constructor(x,y,name,color){ this.hx=x; this.hy=y; this.name=name; this.color=color;
-    this.g=new T.Group(); this.g.position.set(x,y,0); L.scene.add(this.g);
-    this.g.add(new T.Mesh(new T.ConeGeometry(0.9,1.8,16), L.basicMat(color,0.5,true)));
-    const l=L.textSprite(name,18,'#c9f7ff'); l.position.set(0,-1.7,0); this.g.add(l); }
+  constructor(x,y,name,color){ this.hx=x; this.hy=y; this.name=name; this.color=color; }
+  draw(ctx){ ctx.save(); ctx.translate(this.hx,this.hy); ctx.strokeStyle=this.color; ctx.lineWidth=2.2; ctx.shadowColor=this.color; ctx.shadowBlur=10;
+    ctx.beginPath(); ctx.moveTo(0,-22); ctx.lineTo(16,16); ctx.lineTo(-16,16); ctx.closePath(); ctx.stroke(); ctx.restore();
+    L.drawText(this.name, this.hx, this.hy+38, {size:14,color:L.COL.ink,weight:'700'}); }
 }
-
 class MLModel{
-  constructor(x,y){ this.x=x; this.y=y; this.g=new T.Group(); this.g.position.set(x,y,0); L.scene.add(this.g);
-    const box=new T.BoxGeometry(7,6,4);
-    this.g.add(new T.LineSegments(new T.EdgesGeometry(box), L.lineMat(0x46f0ff,0.9)));
-    this.g.add(new T.Mesh(box, new T.MeshBasicMaterial({color:0x46f0ff,transparent:true,opacity:0.05,blending:T.AdditiveBlending,depthWrite:false})));
-    const l1=L.textSprite('CLASSICAL ML',30,'#8fe9ff'); l1.position.set(0,4.4,0);
-    const l2=L.textSprite('you hand-build the features',22,'#6d90a3'); l2.position.set(0,3.5,0);
-    const l3=L.textSprite('feed it CHIPS, not photos',20,'#5fd8ff'); l3.position.set(0,-3.9,0);
-    this.g.add(l1,l2,l3); }
-  over(wx,wy){ return Math.abs(wx-this.x)<3.7 && Math.abs(wy-this.y)<3.2; }
+  constructor(x,y){ this.x=x; this.y=y; }
+  over(wx,wy){ return Math.abs(wx-this.x)<130 && Math.abs(wy-this.y)<110; }
+  draw(ctx){ L.panel(this.x,this.y,270,220,L.COL.CY,{fillA:0.05,glow:12,r:18});
+    L.drawText('CLASSICAL ML', this.x, this.y-84, {size:22,color:L.COL.CY,weight:'800'});
+    L.wrapText('STEP 1 drag a tool onto a photo   STEP 2 drag the chip in here', this.x, this.y-52, 240, 18, {size:13,color:L.COL.dim,weight:'500'});
+    L.wrapText('raw photos are rejected — it only understands chips', this.x, this.y+86, 240, 18, {size:13,color:L.COL.CY,weight:'600'});
+  }
 }
 class DLStack{
-  constructor(x,y){ this.x=x; this.y=y; this.g=new T.Group(); this.g.position.set(x,y,0); L.scene.add(this.g); this.floors=[];
-    for(let i=0;i<4;i++){ const p=new T.Mesh(new T.BoxGeometry(7,1.1,4),
-      new T.MeshBasicMaterial({color:0x9d6bff,transparent:true,opacity:0.12,blending:T.AdditiveBlending,depthWrite:false}));
-      p.position.y=-3+i*1.8; this.g.add(p);
-      this.g.add(new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(7,1.1,4)), L.lineMat(0x9d6bff,0.7)).translateY(-3+i*1.8));
-      this.floors.push(p); }
-    const l1=L.textSprite('DEEP LEARNING',30,'#c9b3ff'); l1.position.set(0,4.6,0);
-    const l2=L.textSprite('learns its own features',22,'#6d90a3'); l2.position.set(0,3.7,0);
-    const l3=L.textSprite('feed it RAW photos',20,'#c79bff'); l3.position.set(0,-4.4,0);
-    this.g.add(l1,l2,l3); this.pulse=-1; }
-  over(wx,wy){ return Math.abs(wx-this.x)<3.7 && Math.abs(wy-this.y)<4.4; }
+  constructor(x,y){ this.x=x; this.y=y; this.pulse=-1; this._cycle=0; }
+  over(wx,wy){ return Math.abs(wx-this.x)<130 && Math.abs(wy-this.y)<130; }
   ripple(){ this.pulse=0; }
-  update(dt){ if(this.pulse>=0){ this.pulse+=dt*2.5;
-    this.floors.forEach((f,i)=>{ const d=Math.abs(this.pulse-i*0.4);
-      f.material.opacity=0.12+Math.max(0,0.5-d)*0.9; });
-    if(this.pulse>3) this.pulse=-1; }
-    else this.floors.forEach(f=>f.material.opacity=0.12+Math.sin(performance.now()*0.001+f.position.y)*0.03); }
+  nextChipName(){ const n=['edge','texture','shape']; return n[this._cycle++%n.length]; }
+  update(dt){ if(this.pulse>=0){ this.pulse+=dt*2.2; if(this.pulse>3) this.pulse=-1; } }
+  draw(ctx){ L.panel(this.x,this.y,270,240,L.COL.VI,{fillA:0.05,glow:12,r:18});
+    for(let i=0;i<4;i++){ const fy=this.y+86-i*46;
+      const on=this.pulse>=0 && Math.abs(this.pulse-i*0.4)<0.5;
+      L.roundRect(this.x-110,fy-16,220,32,8);
+      ctx.save(); ctx.fillStyle=L.hexA(L.COL.VI, on?0.35:0.08); ctx.fill();
+      ctx.strokeStyle=L.hexA(L.COL.VI, on?0.9:0.4); ctx.lineWidth=1.4; ctx.stroke(); ctx.restore(); }
+    L.drawText('DEEP LEARNING', this.x, this.y-104, {size:22,color:'#c9b3ff',weight:'800'});
+    L.wrapText('ONE STEP: drag a raw photo straight in — it builds its own chips', this.x, this.y-72, 240, 18, {size:13,color:L.COL.dim,weight:'500'});
+    L.wrapText('no tools needed', this.x, this.y+118, 240, 18, {size:13,color:'#c79bff',weight:'600'});
+  }
 }
 
 L.definePage({
   name:'Two Ways to Find Features', title:'Hand-Built vs Learned',
-  build(L,idx){
-    mlModel=new MLModel(X-9,-1); dlStack=new DLStack(X+9,0);
-    tools=[ new Tool(X-16,4,'ear tool',0x46f0ff), new Tool(X-16,1,'whisker',0x46f0ff), new Tool(X-16,-2,'texture',0x46f0ff) ];
-    const h1=L.textSprite('Classical ML needs you to describe what matters. Deep learning figures it out.',24,L.COL.ink); h1.position.set(X,13,0);
-    const h2=L.textSprite('drag a tool onto a photo to peel off a feature — then feed the model',20,L.COL.faint); h2.position.set(X,-11.4,0);
-    const h3=L.textSprite('Why it matters: deep learning didn\'t win because it\'s "smarter" — it won because it removes the manual feature step entirely.',18,'#5fd8ff'); h3.position.set(X,-13.0,0);
-    decor=[h1,h2,h3]; decor.forEach(d=>L.scene.add(d)); this.decor=decor;
+  build(L,idx){ const X=L.pageCenterX(idx);
+    mlModel=new MLModel(X-170, L.H*0.44); dlStack=new DLStack(X+190, L.H*0.44);
+    tools=[ new Tool(X-380,L.H*0.3,'ear tool',L.COL.CY), new Tool(X-380,L.H*0.44,'whisker tool',L.COL.CY), new Tool(X-380,L.H*0.58,'texture tool',L.COL.CY) ];
+    this.caption=L.pageCaption(
+      'Classical ML needs YOU to describe what matters. Deep learning figures it out alone.',
+      'left: tool then photo then chip then model.  right: just drop the raw photo straight in.',
+      'deep learning didn\'t win because it\'s "smarter" — it won because it removes the manual feature step.');
   },
-  reset(L,p){ fed={ml:0,dl:0};
-    // photos on a shelf
-    for(let i=0;i<3;i++){ const ph=new Photo(X-2+i*0.1, -6+i*3); ph.x=X-9; ph.y=6-i*3; ph.homeX=ph.x; ph.homeY=ph.y; ph.group.position.set(ph.x,ph.y,0);} 
-    // extra photos near the DL side too
-    const ph2=new Photo(X+3,7); ph2.homeX=ph2.x; ph2.homeY=ph2.y;
+  reset(L,idx){ const X=L.pageCenterX(idx);
+    for(let i=0;i<3;i++) spawnPhoto(idx, X-170, L.H*0.3+i*(L.H*0.28));
+    for(let i=0;i<3;i++) spawnPhoto(idx, X+440, L.H*0.3+i*(L.H*0.28));
   },
-  onDrop(L,o,w,page){
-    // tool onto photo → peel a chip
+  onDrop(L,o,w,idx){
     if(o instanceof Photo){
-      // dropped on ML model?
-      if(mlModel.over(w.x,w.y)){ o.reject(); // ML rejects raw photos
-        return true; }
+      if(mlModel.over(w.x,w.y)){ o.reject(); return true; }
       if(dlStack.over(w.x,w.y)){ o.consumed=true; o.dispose(); dlStack.ripple();
-        L.burst(dlStack.x,dlStack.y,0,0x9d6bff,40,0.3); L.beep(300,0.25,'sine',0.05);
-        fed.dl++;
-        // DL auto-emits its own chips flowing upward
-        for(let i=0;i<3;i++) setTimeout(()=>{ const c=new Chip(dlStack.x,dlStack.y-2,'auto-feature',0x9d6bff);
-          c.state='fly'; c.vy=0.6; c.vx=(Math.random()-0.5)*0.4; },i*160);
+        L.burst(dlStack.x,dlStack.y,L.COL.VI,36,3); L.beep(300,0.25,'sine',0.05);
+        for(let i=0;i<3;i++) setTimeout(()=>{ const c=new Chip(idx, dlStack.x+(Math.random()-0.5)*40, dlStack.y+90, dlStack.nextChipName(), L.COL.VI);
+          c.state='fly'; c.vy=-4; c.vx=(Math.random()-0.5)*2; }, i*220);
+        setTimeout(()=>spawnPhoto(idx, L.pageCenterX(idx)+440, L.H*0.3), 900);
         return true; }
       return false;
     }
-    // chip onto ML model → accepted
-    if(o instanceof Chip){ if(mlModel.over(w.x,w.y)){ o.dispose();
-      L.burst(mlModel.x,mlModel.y,0,0x3dffb0,26,0.3); L.beep(880,0.12,'triangle',0.05); fed.ml++; return true; } return false; }
+    if(o instanceof Chip){ if(mlModel.over(w.x,w.y)){ o.dispose(); L.burst(mlModel.x,mlModel.y,L.COL.OK,22,3); L.beep(880,0.12,'triangle',0.05); return true; } return false; }
     return false;
   },
-  onFrame(L,dt,T){ if(dlStack) dlStack.update(dt);
-    // tool proximity: if a photo overlaps a tool while flying/idle, peel a chip once
+  onFrame(L,dt,T){ dlStack.update(dt);
     for(const o of window.__objsRef()){ if(o instanceof Photo && !o.consumed){
-      for(const tl of tools){ if(Math.hypot(o.x-tl.hx,o.y-tl.hy)<2.2 && o.state!=='grab'){
-        // peel
-        const c=new Chip(o.x+2,o.y, tl.name.replace(' tool','')+'-feat', tl.color); c.state='fly'; c.vx=1; 
-        o.consumed=true; setTimeout(()=>{o.consumed=false;},1200); // debounce
-        L.beep(600,0.08,'triangle',0.04);
+      for(const tl of tools){ if(Math.hypot(o.x-tl.hx,o.y-tl.hy)<50 && o.state!=='grab'){
+        const c=new Chip(o.page, o.x+40,o.y, tl.name.replace(' tool','')+'-feat', tl.color); c.state='fly'; c.vx=3;
+        o.consumed=true; setTimeout(()=>{o.consumed=false; o.reject();},1200);
       } } } }
-  }
+  },
+  draw(L,ctx,dt,T){ mlModel.draw(ctx); dlStack.draw(ctx); tools.forEach(t=>t.draw(ctx)); }
 });
+function spawnPhoto(pageIdx,x,y){ const p=new Photo(pageIdx,x,y); p.homeX=x; p.homeY=y; return p; }
 })();
